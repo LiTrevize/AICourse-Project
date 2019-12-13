@@ -26,11 +26,13 @@ class SSD(nn.Module):
     """
 
     def __init__(self, phase, size, base, extras, head, num_classes):
-        super(SSD, self).__init__()   # 把SSD对象转换位nn.Module对象
+        super(SSD, self).__init__()   # 调用父类nn.Module的构造函数
         self.phase = phase
         self.num_classes = num_classes
+
         # 如果传递到__init__()函数的参数num_classes=21,那么方括号内值为1，选择voc数据集，否则选择coco数据集
         self.cfg = (coco, voc)[num_classes == 21]
+
         # prior 是大小为[8732,4]的tensor，记录所有8732个先验框的x,y,h,w
         self.priorbox = PriorBox(self.cfg)
         with torch.no_grad():
@@ -79,6 +81,7 @@ class SSD(nn.Module):
         for k in range(23):
             x = self.vgg[k](x)
 
+        # normalize before first feature map for detection
         s = self.L2Norm(x)
         sources.append(s)
 
@@ -103,10 +106,12 @@ class SSD(nn.Module):
 
         # apply multibox head to source layers
         for (x, l, c) in zip(sources, self.loc, self.conf):
-            loc.append(l(x).permute(0, 2, 3, 1).contiguous())  # permute函数将所得到的特征图tensor的通道维度放到最后一个维度
+            # permute函数将所得到的特征图tensor的通道维度放到最后一个维度
+            loc.append(l(x).permute(0, 2, 3, 1).contiguous())
             conf.append(c(x).permute(0, 2, 3, 1).contiguous())
 
-        # 在cat操作之前，loc是一个包含6个Tensor的元组，每个元组代表一个特征图经过头网络后关于每个点每个先验框偏移的4个预测
+        # 在cat操作之前，loc是一个包含6个Tensor的元组，每个元组代表
+        # 一个特征图经过头网络后关于每个点每个先验框偏移的4个预测
         # loc[0]: torch.Size([32, 38, 38, 16])
         # loc[1]: torch.Size([32, 19, 19, 24])
         # loc[2]: torch.Size([32, 10, 10, 24])
@@ -234,8 +239,10 @@ def build_ssd(phase, size=300, num_classes=21):
               "currently only SSD300 (size=300) is supported!")
         return
     # head_ 的形式为([],[]),前后两个列表中各有6个卷积层
-    # 前一个列表中每一个卷积层负责代表预测6个feature map中的某一个上任意一点的k个先验框的4个维度的偏差，比如第一个卷积层是：Conv2d(512, 16, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
-    # 后一个列表中每一个卷积层负责代表预测6个feature map中的某一个上任意一点的k个先验框的21个类别的置信度，比如第一个卷积层是：Conv2d(512, 84, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+    # 前一个列表中每一个卷积层负责代表预测6个feature map中的某一个上任意一点的k个先验框的4个维度的偏差，
+    # 比如第一个卷积层是：Conv2d(512, 16, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+    # 后一个列表中每一个卷积层负责代表预测6个feature map中的某一个上任意一点的k个先验框的21个类别的置信度，
+    # 比如第一个卷积层是：Conv2d(512, 84, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
     base_, extras_, head_ = multibox(vgg(base[str(size)], 3),
                                      add_extras(extras[str(size)], 1024),
                                      mbox[str(size)], num_classes)

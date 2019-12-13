@@ -12,6 +12,7 @@ import torch
 import torch.utils.data as data
 import cv2
 import numpy as np
+
 if sys.version_info[0] == 2:
     import xml.etree.cElementTree as ET
 else:
@@ -53,6 +54,7 @@ class VOCAnnotationTransform(object):
                 will be an ET.Element
         Returns:
             a list containing lists of bounding boxes  [bbox coords, class name]
+            bbox coords are ratio to the width/height
         """
         res = []
         for obj in target.iter('object'):
@@ -120,6 +122,13 @@ class VOCDetection(data.Dataset):
         return len(self.ids)
 
     def pull_item(self, index):
+        """
+        :param index: in the ids
+        :return:    img: tensor(channels, height, width),
+                    annotation: list([xmin, ymin, xmax, ymax, label_ind])),
+                    height,
+                    width
+        """
         img_id = self.ids[index]
 
         target = ET.parse(self._annopath % img_id).getroot()

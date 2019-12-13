@@ -15,6 +15,7 @@ import torch.utils.data as data
 import numpy as np
 import argparse
 
+
 # torch.cuda.set_device(2)
 
 def str2bool(v):
@@ -53,7 +54,6 @@ parser.add_argument('--visdom', default=False, type=str2bool,
 parser.add_argument('--save_folder', default='weights/',
                     help='Directory for saving checkpoint models')
 args = parser.parse_args()
-
 
 if torch.cuda.is_available():
     if args.cuda:
@@ -97,12 +97,15 @@ def train():
     net = ssd_net
 
     if args.cuda:
-        net = torch.nn.DataParallel(ssd_net,device_ids=[0,1,2])
+        net = torch.nn.DataParallel(ssd_net, device_ids=[0, 1, 2])
         cudnn.benchmark = True
 
+    # load weight of last train iteration
     if args.resume:
         print('Resuming training, loading {}...'.format(args.resume))
         ssd_net.load_weights(args.resume)
+
+    # vgg net is pre-trained, load weight
     else:
         vgg_weights = torch.load(args.save_folder + args.basenet)
         print('Loading base network...')
@@ -200,7 +203,7 @@ def train():
         if iteration != 0 and iteration % 5000 == 0:
             print('Saving state, iter:', iteration)
             if args.dataset == 'VOC':
-                torch.save(ssd_net.state_dict(), 'weights/ssd300_VOC_' +repr(iteration) + '.pth')
+                torch.save(ssd_net.state_dict(), 'weights/ssd300_VOC_' + repr(iteration) + '.pth')
             else:
                 torch.save(ssd_net.state_dict(), 'weights/ssd300_COCO_' + repr(iteration) + '.pth')
     torch.save(ssd_net.state_dict(),

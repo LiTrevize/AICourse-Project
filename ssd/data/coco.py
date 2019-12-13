@@ -43,8 +43,12 @@ class COCOAnnotationTransform(object):
     """Transforms a COCO annotation into a Tensor of bbox coords and label index
     Initilized with a dictionary lookup of classnames to indexes
     """
+
     def __init__(self):
-        self.label_map = get_label_map(osp.join(COCO_ROOT, 'coco_labels.txt'))
+        try:
+            self.label_map = get_label_map(osp.join(COCO_ROOT, 'coco_labels.txt'))
+        except:
+            self.label_map = None
 
     def __call__(self, target, width, height):
         """
@@ -63,7 +67,7 @@ class COCOAnnotationTransform(object):
                 bbox[2] += bbox[0]
                 bbox[3] += bbox[1]
                 label_idx = self.label_map[obj['category_id']] - 1
-                final_box = list(np.array(bbox)/scale)
+                final_box = list(np.array(bbox) / scale)
                 final_box.append(label_idx)
                 res += [final_box]  # [xmin, ymin, xmax, ymax, label_idx]
             else:
