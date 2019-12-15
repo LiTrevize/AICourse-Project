@@ -16,7 +16,7 @@ import numpy as np
 import argparse
 
 
-# torch.cuda.set_device(2)
+torch.cuda.set_device(0)
 
 def str2bool(v):
     return v.lower() in ("yes", "true", "t", "1")
@@ -41,7 +41,7 @@ parser.add_argument('--num_workers', default=4, type=int,
                     help='Number of workers used in dataloading')
 parser.add_argument('--cuda', default=True, type=str2bool,
                     help='Use CUDA to train model')
-parser.add_argument('--lr', '--learning-rate', default=1e-4, type=float,
+parser.add_argument('--lr', '--learning-rate', default=1e-3, type=float,
                     help='initial learning rate')
 parser.add_argument('--momentum', default=0.9, type=float,
                     help='Momentum value for optim')
@@ -97,7 +97,7 @@ def train():
     net = ssd_net
 
     if args.cuda:
-        net = torch.nn.DataParallel(ssd_net, device_ids=[0, 1, 2])
+        net = torch.nn.DataParallel(ssd_net, device_ids=[0])
         cudnn.benchmark = True
 
     # load weight of last train iteration
