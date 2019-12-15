@@ -259,7 +259,7 @@ def voc_eval(detpath, annopath, imagesetfile, classname, cachedir, ovthresh=0.5,
         lines = f.readlines()
     imagenames = [x.strip() for x in lines]
     if not os.path.isfile(cachefile):
-        # load annots
+        # load annots xml objects
         recs = {}
         for i, imagename in enumerate(imagenames):
             recs[imagename] = parse_rec(annopath % (imagename))
@@ -279,6 +279,7 @@ def voc_eval(detpath, annopath, imagesetfile, classname, cachedir, ovthresh=0.5,
     class_recs = {}
     npos = 0
     for imagename in imagenames:
+        # gt detection for imagename(id)
         R = [obj for obj in recs[imagename] if obj['name'] == classname]
         bbox = np.array([x['bbox'] for x in R])
         difficult = np.array([x['difficult'] for x in R]).astype(np.bool)

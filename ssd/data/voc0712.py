@@ -30,7 +30,7 @@ VOC_ROOT = osp.join(HOME, "data/VOCdevkit/")
 
 
 class VOCAnnotationTransform(object):
-    """Transforms a VOC annotation into a Tensor of bbox coords and label index
+    """Transforms a VOC annotation into a Tensor of gt coords and label index
     Initilized with a dictionary lookup of classnames to indexes
 
     Arguments:
@@ -53,8 +53,8 @@ class VOCAnnotationTransform(object):
             target (annotation) : the target annotation to be made usable
                 will be an ET.Element
         Returns:
-            a list containing lists of bounding boxes  [bbox coords, class name]
-            bbox coords are ratio to the width/height
+            a list containing lists of bounding boxes  [gt coords, class name]
+            gt coords are ratio to the width/height
         """
         res = []
         for obj in target.iter('object'):
@@ -171,7 +171,7 @@ class VOCDetection(data.Dataset):
         Argument:
             index (int): index of img to get annotation of
         Return:
-            list:  [img_id, [(label, bbox coords),...]]
+            list:  [img_id, [(label, gt coords),...]]
                 eg: ('001718', [('dog', (96, 13, 438, 332))])
         '''
         img_id = self.ids[index]
