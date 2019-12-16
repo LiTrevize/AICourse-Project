@@ -387,7 +387,8 @@ def voc_eval(detpath, annopath, imagesetfile, classname, cachedir, ovthresh=0.5,
                         fp_cat[rs][d] = 1.
             else:
                 fp[d] = 1.
-                # fp_cat[rs][d] = 1.
+                for i in range(5):
+                    fp_cat[i][d] = 1.
 
         # compute precision recall
         fp = np.cumsum(fp)
