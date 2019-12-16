@@ -172,7 +172,7 @@ class VOCDetection(data.Dataset):
             index (int): index of img to get annotation of
         Return:
             list:  [img_id, [(label, gt coords),...]]
-                eg: ('001718', [('dog', (96, 13, 438, 332))])
+                eg: ('001718', [(96, 13, 438, 332, index of 'dog')])
         '''
         img_id = self.ids[index]
         anno = ET.parse(self._annopath % img_id).getroot()
