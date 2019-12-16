@@ -83,8 +83,8 @@ if __name__ == '__main__':
     # medium (M: next 40%)
     # large (L: next 20%)
     # extra-large (XL: next 10%)
-    sizes = ['XS', 'S', 'M', 'L', 'XL']
-    sizemap = {'XS': 0, 'S': 1, 'M': 2, 'L': 3, 'XL': 4}
+    # size_labels = ['XS', 'S', 'M', 'L', 'XL']
+    # sizemap = {'XS': 0, 'S': 1, 'M': 2, 'L': 3, 'XL': 4}
 
     sorted_size = [sorted(dets_size[i]) for i in range(num_cls)]
 
