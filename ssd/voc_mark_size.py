@@ -60,8 +60,7 @@ set_type = 'test'
 if __name__ == '__main__':
     dataset = VOCDetection(args.voc_root, [('2007', set_type)],
                            BaseTransform(300, dataset_mean),  # resize to 300*300 and - mean
-                           VOCAnnotationTransform())
-
+                           VOCAnnotationTransform(keep_difficult=True))
 
     # cls * id/size
     num_cls = len(labelmap)
@@ -75,8 +74,8 @@ if __name__ == '__main__':
             cls = det[-1]
             dets_id[cls].append(imgid)
             dets_size[cls].append(det_size)
-        if i % 100 ==0:
-            print('\rProgress: {}%'.format(int(100.0*i/len(dataset))),end='')
+        if i % 100 == 0:
+            print('\rProgress: {}%'.format(int(100.0 * i / len(dataset))), end='')
     print()
 
     # extra-small (XS: bottom 10%)
@@ -113,6 +112,7 @@ if __name__ == '__main__':
                 dets_size[i][j] = 4
 
     # cls_imgs: (cls, imgid, list of detection size)
+    print('rearranging data format...')
     cls_imgs = [{} for i in range(num_cls)]
     for cls in range(num_cls):
         for _, imgid in dataset.ids:
