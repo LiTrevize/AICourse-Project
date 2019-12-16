@@ -38,6 +38,13 @@ def str2bool(v):
     return v.lower() in ("yes", "true", "t", "1")
 
 
+def getval(d, k):
+    if k in d.keys():
+        return d[k]
+    else:
+        return []
+
+
 parser = argparse.ArgumentParser(
     description='Single Shot MultiBox Detector Evaluation')
 # parser.add_argument('--trained_model',
@@ -76,12 +83,15 @@ else:
 
 annopath = os.path.join(args.voc_root, 'VOC2007', 'Annotations', '%s.xml')
 imgpath = os.path.join(args.voc_root, 'VOC2007', 'JPEGImages', '%s.jpg')
-imgsetpath = os.path.join(args.voc_root, 'VOC2007', 'ImageSets',
-                          'Main', '{:s}.txt')
+imgsetpath = os.path.join(args.voc_root, 'VOC2007', 'ImageSets', 'Main') + '/{:s}.txt'
+
 YEAR = '2007'
 devkit_path = args.voc_root + 'VOC' + YEAR
 dataset_mean = (104, 117, 123)
 set_type = 'test'
+
+size_labels = ['XS', 'S', 'M', 'L', 'XL']
+sizemap = {'XS': 0, 'S': 1, 'M': 2, 'L': 3, 'XL': 4}
 
 
 class Timer(object):
@@ -172,6 +182,7 @@ def write_voc_results_file(all_boxes, dataset):
 def do_python_eval(output_dir='output', use_07=True):
     cachedir = os.path.join(devkit_path, 'annotations_cache')
     aps = []
+    aps_cat = [[]] * 5
     # The PASCAL VOC metric changed in 2010
     use_07_metric = use_07
     print('VOC07 metric? ' + ('Yes' if use_07_metric else 'No'))
@@ -179,13 +190,21 @@ def do_python_eval(output_dir='output', use_07=True):
         os.mkdir(output_dir)
     for i, cls in enumerate(labelmap):
         filename = get_voc_results_file_template(set_type, cls)
-        rec, prec, ap = voc_eval(
+        rec, prec, ap, rec_cat, prec_cat, ap_cat = voc_eval(
             filename, annopath, imgsetpath.format(set_type), cls, cachedir,
             ovthresh=0.5, use_07_metric=use_07_metric)
+
         aps += [ap]
+        for j in range(5):
+            aps_cat[j].append(ap_cat[j])
+
         print('AP for {} = {:.4f}'.format(cls, ap))
+        for j in range(5):
+            print('\tAP for {} = {:.4f}'.format(size_labels[j], ap_cat[j]))
         with open(os.path.join(output_dir, cls + '_pr.pkl'), 'wb') as f:
             pickle.dump({'rec': rec, 'prec': prec, 'ap': ap}, f)
+    for j in range(5):
+        print('Mean AP for {} = {:.4f}'.format(size_labels[j], np.mean(aps_cat[j])))
     print('Mean AP = {:.4f}'.format(np.mean(aps)))
     print('~~~~~~~~')
     print('Results:')
@@ -193,11 +212,11 @@ def do_python_eval(output_dir='output', use_07=True):
         print('{:.3f}'.format(ap))
     print('{:.3f}'.format(np.mean(aps)))
     print('~~~~~~~~')
-    print('')
-    print('--------------------------------------------------------------')
-    print('Results computed with the **unofficial** Python eval code.')
-    print('Results should be very close to the official MATLAB eval code.')
-    print('--------------------------------------------------------------')
+    # print('')
+    # print('--------------------------------------------------------------')
+    # print('Results computed with the **unofficial** Python eval code.')
+    # print('Results should be very close to the official MATLAB eval code.')
+    # print('--------------------------------------------------------------')
 
 
 def voc_ap(rec, prec, use_07_metric=True):
@@ -275,19 +294,35 @@ def voc_eval(detpath, annopath, imagesetfile, classname, cachedir, ovthresh=0.5,
         with open(cachefile, 'rb') as f:
             recs = pickle.load(f)
 
+    with open('det_size.pkl', 'rb') as f:
+        cls_imgs_size = pickle.load(f)
+
     # extract gt objects for this class
     class_recs = {}
     npos = 0
+    npos_cat = [0] * 5
+
     for imagename in imagenames:
         # gt detection for imagename(id)
         R = [obj for obj in recs[imagename] if obj['name'] == classname]
         bbox = np.array([x['bbox'] for x in R])
         difficult = np.array([x['difficult'] for x in R]).astype(np.bool)
         det = [False] * len(R)
-        npos = npos + sum(~difficult)
+        npos = npos + sum(~difficult)  # npos only counts non-difficult detection
+
+        # num of size = num of detection
+        sizes = getval(cls_imgs_size[labelmap.index(classname)], imagename)
+        assert len(sizes) == len(R)
+        for s, d in zip(sizes, difficult):
+            if not d:
+                npos_cat[s] += 1
+
         class_recs[imagename] = {'bbox': bbox,
                                  'difficult': difficult,
-                                 'det': det}
+                                 'det': det,
+                                 'size': sizes}
+
+    assert sum(npos_cat) == npos
 
     # read dets
     detfile = detpath.format(classname)
@@ -298,6 +333,7 @@ def voc_eval(detpath, annopath, imagesetfile, classname, cachedir, ovthresh=0.5,
         splitlines = [x.strip().split(' ') for x in lines]
         image_ids = [x[0] for x in splitlines]
         confidence = np.array([float(x[1]) for x in splitlines])
+        # bbox
         BB = np.array([[float(z) for z in x[2:]] for x in splitlines])
 
         # sort by confidence
@@ -310,7 +346,12 @@ def voc_eval(detpath, annopath, imagesetfile, classname, cachedir, ovthresh=0.5,
         nd = len(image_ids)
         tp = np.zeros(nd)
         fp = np.zeros(nd)
+        tp_cat = [np.zeros(nd)] * 5
+        fp_cat = [np.zeros(nd)] * 5
+
+        # visit all detections of one class
         for d in range(nd):
+            # R is gt detection of one image
             R = class_recs[image_ids[d]]
             bb = BB[d, :].astype(float)
             ovmax = -np.inf
@@ -332,30 +373,45 @@ def voc_eval(detpath, annopath, imagesetfile, classname, cachedir, ovthresh=0.5,
                 ovmax = np.max(overlaps)
                 jmax = np.argmax(overlaps)
 
+            if R['size']:
+                rs = R['size'][jmax]
+
             if ovmax > ovthresh:
                 if not R['difficult'][jmax]:
                     if not R['det'][jmax]:
                         tp[d] = 1.
+                        tp_cat[rs][d] = 1.
                         R['det'][jmax] = 1
                     else:
                         fp[d] = 1.
+                        fp_cat[rs][d] = 1.
             else:
                 fp[d] = 1.
+                # fp_cat[rs][d] = 1.
 
         # compute precision recall
         fp = np.cumsum(fp)
         tp = np.cumsum(tp)
+        for i in range(5):
+            fp_cat[i] = np.cumsum(fp_cat[i])
+            tp_cat[i] = np.cumsum(tp_cat[i])
+
         rec = tp / float(npos)
         # avoid divide by zero in case the first detection matches a difficult
         # ground truth
         prec = tp / np.maximum(tp + fp, np.finfo(np.float64).eps)
+
+        rec_cat = [tp_cat[i] / npos_cat[i] for i in range(5)]
+        prec_cat = [tp_cat[i] / np.maximum(tp_cat[i] + fp_cat[i], np.finfo(np.float64).eps) for i in range(5)]
+
         ap = voc_ap(rec, prec, use_07_metric)
+        ap_cat = [voc_ap(rec_cat[i], prec_cat[i], use_07_metric) for i in range(5)]
     else:
         rec = -1.
         prec = -1.
         ap = -1.
 
-    return rec, prec, ap
+    return rec, prec, ap, rec_cat, prec_cat, ap_cat
 
 
 def test_net(save_folder, net, cuda, dataset, transform, top_k,
@@ -402,6 +458,8 @@ def test_net(save_folder, net, cuda, dataset, transform, top_k,
 
         print('im_detect: {:d}/{:d} {:.3f}s'.format(i + 1,
                                                     num_images, detect_time))
+        # if i == 5:
+        #     break
 
     with open(det_file, 'wb') as f:
         pickle.dump(all_boxes, f, pickle.HIGHEST_PROTOCOL)
