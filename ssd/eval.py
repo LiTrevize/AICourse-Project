@@ -50,6 +50,8 @@ parser.add_argument('--cleanup', default=True, type=str2bool,
                     help='Cleanup and remove results files following eval')
 parser.add_argument('--device', default=0, type=int,
                     help='set GPU device id ')
+parser.add_argument('--cached_det', default=False, type=str2bool,
+                    help='use cached detection for neural network')
 
 args = parser.parse_args()
 
@@ -454,7 +456,7 @@ def test_net(save_folder, net, cuda, dataset, transform, top_k,
     det_file = os.path.join(output_dir, 'detections.pkl')
 
     # if cached detection
-    if os.path.exists(det_file):
+    if args.cached_det and os.path.exists(det_file):
         with open(det_file, 'rb') as f:
             all_boxes = pickle.load(f)
 
