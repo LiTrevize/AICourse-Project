@@ -88,6 +88,9 @@ if __name__ == '__main__':
 
     sorted_size = [sorted(dets_size[i]) for i in range(num_cls)]
 
+    # detection size threshold
+    det_size_thres = np.zeros((num_cls, 4))
+
     # determine the boundary and replace actual size with label
     for i in range(len(sorted_size)):
         cls_size = sorted_size[i]
@@ -97,6 +100,7 @@ if __name__ == '__main__':
         M = cls_size[int(num * 0.7)]
         L = cls_size[int(num * 0.9)]
         print(i, XS, S, M, L)
+        det_size_thres[i] = (XS, S, M, L)
 
         #
         for j in range(num):
@@ -128,3 +132,5 @@ if __name__ == '__main__':
     #     print(cls_imgs[i])
     with open("det_size.pkl", 'wb') as f:
         pickle.dump(cls_imgs, f, pickle.HIGHEST_PROTOCOL)
+    with open("det_size_thres.pkl", 'wb') as f:
+        pickle.dump(det_size_thres, f, pickle.HIGHEST_PROTOCOL)
