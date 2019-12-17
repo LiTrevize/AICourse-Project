@@ -428,7 +428,7 @@ def voc_eval(detpath, annopath, imagesetfile, classname, cachedir, ovthresh=0.5,
         # ground truth
         prec = tp / np.maximum(tp + fp, np.finfo(np.float64).eps)
 
-        rec_cat = [tp_scale[i] / npos_scale[i] for i in range(5)]
+        rec_cat = [tp_scale[i] / np.maximum(npos_scale[i], np.finfo(np.float64).eps) for i in range(5)]
         prec_cat = [tp_scale[i] / np.maximum(tp_scale[i] + fp_scale[i], np.finfo(np.float64).eps) for i in range(5)]
 
         ap = voc_ap(rec, prec, use_07_metric)
@@ -513,10 +513,11 @@ if __name__ == '__main__':
     # load net
     num_classes = len(labelmap) + 1  # +1 for background
     net = build_ssd('test', 300, num_classes)  # initialize SSD
-    if args.cuda:
-        net.load_state_dict(torch.load(args.trained_model))
-    else:
-        net.load_state_dict(torch.load(args.trained_model, map_location='cpu'))
+    if not args.cached_det:
+        if args.cuda:
+            net.load_state_dict(torch.load(args.trained_model))
+        else:
+            net.load_state_dict(torch.load(args.trained_model, map_location='cpu'))
     net.eval()
     print('Finished loading model!')
     # load data
