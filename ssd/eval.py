@@ -23,26 +23,9 @@ import numpy as np
 import pickle
 import cv2
 
-if torch.cuda.is_available():
-    torch.cuda.set_device(0)
-else:
-    torch.device('cpu')
-
-if sys.version_info[0] == 2:
-    import xml.etree.cElementTree as ET
-else:
-    import xml.etree.ElementTree as ET
-
 
 def str2bool(v):
     return v.lower() in ("yes", "true", "t", "1")
-
-
-def getval(d, k):
-    if k in d.keys():
-        return d[k]
-    else:
-        return []
 
 
 parser = argparse.ArgumentParser(
@@ -65,8 +48,28 @@ parser.add_argument('--voc_root', default=VOC_ROOT,
                     help='Location of VOC root directory')
 parser.add_argument('--cleanup', default=True, type=str2bool,
                     help='Cleanup and remove results files following eval')
+parser.add_argument('--device', default=0, type=int,
+                    help='set GPU device id ')
 
 args = parser.parse_args()
+
+if args.cuda:
+    torch.cuda.set_device(args.device)
+else:
+    torch.device('cpu')
+
+if sys.version_info[0] == 2:
+    import xml.etree.cElementTree as ET
+else:
+    import xml.etree.ElementTree as ET
+
+
+def getval(d, k):
+    if k in d.keys():
+        return d[k]
+    else:
+        return []
+
 
 if not os.path.exists(args.save_folder):
     os.mkdir(args.save_folder)
@@ -182,7 +185,7 @@ def write_voc_results_file(all_boxes, dataset):
 def do_python_eval(output_dir='output', use_07=True):
     cachedir = os.path.join(devkit_path, 'annotations_cache')
     aps = []
-    aps_cat = [[]] * 5
+    aps_cat = [[] for i in range(5)]
     # The PASCAL VOC metric changed in 2010
     use_07_metric = use_07
     print('VOC07 metric? ' + ('Yes' if use_07_metric else 'No'))
@@ -202,7 +205,7 @@ def do_python_eval(output_dir='output', use_07=True):
         for j in range(5):
             print('\tAP for {} = {:.4f}'.format(size_labels[j], ap_cat[j]))
         with open(os.path.join(output_dir, cls + '_pr.pkl'), 'wb') as f:
-            pickle.dump({'rec': rec, 'prec': prec, 'ap': ap}, f)
+            pickle.dump({'rec': rec_cat + [rec], 'prec': prec_cat + [prec], 'ap': ap_cat + [ap]}, f)
     for j in range(5):
         print('Mean AP for {} = {:.4f}'.format(size_labels[j], np.mean(aps_cat[j])))
     print('Mean AP = {:.4f}'.format(np.mean(aps)))
@@ -296,11 +299,13 @@ def voc_eval(detpath, annopath, imagesetfile, classname, cachedir, ovthresh=0.5,
 
     with open('det_size.pkl', 'rb') as f:
         cls_imgs_size = pickle.load(f)
+    with open('det_size_thres.pkl', 'rb') as f:
+        cat_size_thres = pickle.load(f)
 
     # extract gt objects for this class
     class_recs = {}
     npos = 0
-    npos_cat = [0] * 5
+    npos_scale = [0] * 5
 
     for imagename in imagenames:
         # gt detection for imagename(id)
@@ -315,14 +320,14 @@ def voc_eval(detpath, annopath, imagesetfile, classname, cachedir, ovthresh=0.5,
         assert len(sizes) == len(R)
         for s, d in zip(sizes, difficult):
             if not d:
-                npos_cat[s] += 1
+                npos_scale[s] += 1
 
         class_recs[imagename] = {'bbox': bbox,
                                  'difficult': difficult,
                                  'det': det,
                                  'size': sizes}
 
-    assert sum(npos_cat) == npos
+    assert sum(npos_scale) == npos
 
     # read dets
     detfile = detpath.format(classname)
@@ -346,8 +351,8 @@ def voc_eval(detpath, annopath, imagesetfile, classname, cachedir, ovthresh=0.5,
         nd = len(image_ids)
         tp = np.zeros(nd)
         fp = np.zeros(nd)
-        tp_cat = [np.zeros(nd)] * 5
-        fp_cat = [np.zeros(nd)] * 5
+        tp_scale = [[] for i in range(5)]
+        fp_scale = [[] for i in range(5)]
 
         # visit all detections of one class
         for d in range(nd):
@@ -373,37 +378,56 @@ def voc_eval(detpath, annopath, imagesetfile, classname, cachedir, ovthresh=0.5,
                 ovmax = np.max(overlaps)
                 jmax = np.argmax(overlaps)
 
-            if R['size']:
-                rs = R['size'][jmax]
+            # size of matched detection
+            # rs = R['size'][jmax]
+            rs = (bb[2] - bb[0]) * (bb[3] - bb[1])
+            thres = cat_size_thres[labelmap.index(classname)]
+            if rs <= thres[0]:
+                rs = 0
+            elif rs <= thres[1]:
+                rs = 1
+            elif rs <= thres[2]:
+                rs = 2
+            elif rs <= thres[3]:
+                rs = 3
+            else:
+                rs = 4
 
             if ovmax > ovthresh:
+                rs = R['size'][jmax]
                 if not R['difficult'][jmax]:
                     if not R['det'][jmax]:
                         tp[d] = 1.
-                        tp_cat[rs][d] = 1.
+                        tp_scale[rs].append(1.)
+                        fp_scale[rs].append(0.)
                         R['det'][jmax] = 1
                     else:
                         fp[d] = 1.
-                        fp_cat[rs][d] = 1.
+                        tp_scale[rs].append(0.)
+                        fp_scale[rs].append(1.)
+                        # for i in range(i):
+                        #     fp_scale[i][d] = 1.
             else:
                 fp[d] = 1.
-                for i in range(5):
-                    fp_cat[i][d] = 1.
+                tp_scale[rs].append(0.)
+                fp_scale[rs].append(1.)
+                # for i in range(5):
+                #     fp_scale[i][d] = 1.
 
         # compute precision recall
         fp = np.cumsum(fp)
         tp = np.cumsum(tp)
         for i in range(5):
-            fp_cat[i] = np.cumsum(fp_cat[i])
-            tp_cat[i] = np.cumsum(tp_cat[i])
+            fp_scale[i] = np.cumsum(fp_scale[i])
+            tp_scale[i] = np.cumsum(tp_scale[i])
 
         rec = tp / float(npos)
         # avoid divide by zero in case the first detection matches a difficult
         # ground truth
         prec = tp / np.maximum(tp + fp, np.finfo(np.float64).eps)
 
-        rec_cat = [tp_cat[i] / npos_cat[i] for i in range(5)]
-        prec_cat = [tp_cat[i] / np.maximum(tp_cat[i] + fp_cat[i], np.finfo(np.float64).eps) for i in range(5)]
+        rec_cat = [tp_scale[i] / npos_scale[i] for i in range(5)]
+        prec_cat = [tp_scale[i] / np.maximum(tp_scale[i] + fp_scale[i], np.finfo(np.float64).eps) for i in range(5)]
 
         ap = voc_ap(rec, prec, use_07_metric)
         ap_cat = [voc_ap(rec_cat[i], prec_cat[i], use_07_metric) for i in range(5)]
@@ -428,6 +452,15 @@ def test_net(save_folder, net, cuda, dataset, transform, top_k,
     _t = {'im_detect': Timer(), 'misc': Timer()}
     output_dir = get_output_dir('ssd300_120000', set_type)
     det_file = os.path.join(output_dir, 'detections.pkl')
+
+    # if cached detection
+    if os.path.exists(det_file):
+        with open(det_file, 'rb') as f:
+            all_boxes = pickle.load(f)
+
+        print('Evaluating detections')
+        evaluate_detections(all_boxes, output_dir, dataset)
+        return
 
     for i in range(num_images):
         im, gt, h, w = dataset.pull_item(i)
@@ -459,8 +492,8 @@ def test_net(save_folder, net, cuda, dataset, transform, top_k,
 
         print('im_detect: {:d}/{:d} {:.3f}s'.format(i + 1,
                                                     num_images, detect_time))
-        # if i == 5:
-        #     break
+        if i == 10:
+            break
 
     with open(det_file, 'wb') as f:
         pickle.dump(all_boxes, f, pickle.HIGHEST_PROTOCOL)
@@ -478,7 +511,7 @@ if __name__ == '__main__':
     # load net
     num_classes = len(labelmap) + 1  # +1 for background
     net = build_ssd('test', 300, num_classes)  # initialize SSD
-    if torch.cuda.is_available():
+    if args.cuda:
         net.load_state_dict(torch.load(args.trained_model))
     else:
         net.load_state_dict(torch.load(args.trained_model, map_location='cpu'))
