@@ -1,0 +1,144 @@
+\documentclass[journal,conference]{IEEEtran}
+
+
+% correct bad hyphenation here
+\hyphenation{op-tical net-works semi-conduc-tor}
+\usepackage{amsmath}
+\usepackage{comment}
+%\usepackage{cases}
+%\usepackage{subeqnarray}
+\usepackage{booktabs}
+\usepackage{subfigure}
+\usepackage{xcolor}
+\usepackage{listings}
+\lstset{
+  basicstyle=\fontsize{9}{10}\selectfont\ttfamily,
+  numbers=left,
+  numberstyle= \tiny,
+  keywordstyle= \color{ blue!70},
+  commentstyle= \color{red!50!green!50!blue!50},
+  frame=single,
+  rulesepcolor= \color{ red!20!green!20!blue!20} ,
+  escapeinside=``,
+  xleftmargin=1.5em,xrightmargin=0em, aboveskip=1em,
+  framexleftmargin=2em,
+  showstringspaces=false,
+  showtabs=false,
+  breaklines=true
+}
+\lstdefinelanguage{Solidity}
+{
+  morekeywords={contract, mapping, address, uint, private, function, public, if, payable},
+  morecomment=[l]{//},
+  morestring=[b]"
+}
+
+
+\usepackage{multicol}
+\usepackage{lipsum}
+\usepackage{mathtools}
+\usepackage{cuted}
+
+\usepackage{amsmath}
+\usepackage{extpfeil}
+\usepackage{mathpartir}
+\usepackage[mathscr]{eucal}
+
+\usepackage{hyperref}
+\usepackage{cleveref}
+
+% \usepackage{CJK}
+
+\crefformat{section}{\S#2#1#3} % see manual of cleveref, section 8.2.1
+\crefformat{subsection}{\S#2#1#3}
+\crefformat{subsubsection}{\S#2#1#3}
+
+\begin{document}
+%
+% paper title
+% Titles are generally capitalized except for words such as a, an, and, as,
+% at, but, by, for, in, nor, of, on, or, the, to and up, which are usually
+% not capitalized unless they are the first or last word of the title.
+% Linebreaks \\ can be used within to get better formatting as desired.
+% Do not put math or special symbols in the title.
+\title{Improve SSD with Feature Fusion, \\IOU Loss and Data Augmentation}
+%
+%
+% author names and IEEE memberships
+% note positions of commas and nonbreaking spaces ( ~ ) LaTeX will not break
+% a structure at a ~ so this keeps an author's name from being broken across
+% two lines.
+% use \thanks{} to gain access to the first footnote area
+% a separate \thanks must be used for each paragraph as LaTeX2e's \thanks
+% was not built to handle multiple paragraphs
+%
+
+\author{
+	Jingyu~Li,~\IEEEmembership{SJTU,}
+	Haoping~Chen,~\IEEEmembership{SJTU,}
+	Huangfei~Jiang,~\IEEEmembership{SJTU,}
+}
+
+% The paper headers
+\markboth{Journal of \LaTeX\ Class Files,~Vol.~13, No.~9, September~2014}%
+{Shell \MakeLowercase{\textit{et al.}}: Bare Demo of IEEEtran.cls for Journals}
+% The only time the second header will appear is for the odd numbered pages
+% after the title page when using the twoside option.
+%
+% *** Note that you probably will NOT want to include the author's ***
+% *** name in the headers of peer review papers.                   ***
+% You can use \ifCLASSOPTIONpeerreview for conditional compilation here if
+% you desire.
+
+
+% make the title area
+\maketitle
+
+% As a general rule, do not put math, special symbols or citations
+% in the abstract or keywords.
+\begin{abstract}
+	In this project
+\end{abstract}
+
+% Note that keywords are not normally used for peerreview papers.
+\begin{IEEEkeywords}
+	OBI recognition, CNN, template matching, data augmentation.
+\end{IEEEkeywords}
+
+
+\IEEEpeerreviewmaketitle
+
+
+
+\section{Introduction}
+\IEEEPARstart{O}{racle} 
+
+
+% ljy
+\section{SSD Baseline}
+
+
+
+\section{SSD Improvement}
+% ljy
+\subsection{Data Augmentation}
+
+% chp
+\subsection{Feature Fusion}
+
+
+
+% chp
+\subsection{IOU Loss}
+
+
+
+\section{Conclusion}
+
+
+\bibliographystyle{IEEEtran}
+\bibliography{Ref}
+
+
+% that's all folks
+\end{document}
