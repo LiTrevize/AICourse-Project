@@ -15,8 +15,7 @@ import torch.utils.data as data
 import numpy as np
 import argparse
 
-
-torch.cuda.set_device(3)
+torch.cuda.set_device(1)
 
 def str2bool(v):
     return v.lower() in ("yes", "true", "t", "1")
@@ -25,13 +24,19 @@ def str2bool(v):
 parser = argparse.ArgumentParser(
     description='Single Shot MultiBox Detector Training With Pytorch')
 train_set = parser.add_mutually_exclusive_group()
+# specify the model
+parser.add_argument('--model', choices=['ssd_bifpn','ssd_bifpn_iou_loss'],
+                    type=str, help='model type')
 parser.add_argument('--dataset', default='VOC', choices=['VOC', 'COCO'],
                     type=str, help='VOC or COCO')
 parser.add_argument('--dataset_root', default=VOC_ROOT,
                     help='Dataset root directory path')
+# whether to use super resolution
+parser.add_argument('--super_res', dest='super_res', action='store_true',
+                    help='whether to make image super resolution')
 parser.add_argument('--basenet', default='vgg16_reducedfc.pth',
                     help='Pretrained base model')
-parser.add_argument('--batch_size', default=6, type=int,
+parser.add_argument('--batch_size', default=12, type=int,
                     help='Batch size for training')
 parser.add_argument('--resume', default=None, type=str,
                     help='Checkpoint state_dict file to resume training from')
@@ -84,20 +89,31 @@ def train():
     elif args.dataset == 'VOC':
         if args.dataset_root == COCO_ROOT:
             parser.error('Must specify dataset if specifying dataset_root')
-        cfg = voc
+        if args.model == 'ssd300':
+            cfg = voc_300
+        elif args.model == 'ssd512':
+            cfg = voc_512
+        elif args.model == 'ssd_bifpn' or args.model == 'ssd_bifpn_iou_loss':
+            cfg = voc_bifpn
         dataset = VOCDetection(root=args.dataset_root,
-                               transform=SSDAugmentation(cfg['min_dim'],
-                                                         MEANS))
+                               transform=SSDAugmentation(cfg['min_dim'], MEANS),
+                               super_res=args.super_res)
 
     if args.visdom:
         import visdom
         viz = visdom.Visdom()
 
-    ssd_net = build_ssd('train', cfg['min_dim'], cfg['num_classes'])
+    if args.model == 'ssd_bifpn':
+        ssd_net = build_ssd('train', cfg['min_dim'], cfg['num_classes'], ['bifpn'])
+    elif args.model == 'ssd_bifpn_iou_loss':
+        ssd_net = build_ssd('train', cfg['min_dim'], cfg['num_classes'], ['bifpn','iou_loss'])
+    else:
+        ssd_net = build_ssd('train', cfg['min_dim'], cfg['num_classes'])
     net = ssd_net
 
     if args.cuda:
-        net = torch.nn.DataParallel(ssd_net, device_ids=[3])
+        # set train gpu device id
+        net = torch.nn.DataParallel(ssd_net, device_ids=[1])
         # net = torch.nn.DataParallel(ssd_net)
         cudnn.benchmark = True
 
@@ -124,13 +140,18 @@ def train():
 
     optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=args.momentum,
                           weight_decay=args.weight_decay)
-    criterion = MultiBoxLoss(cfg['num_classes'], 0.5, True, 0, True, 3, 0.5,
-                             False, args.cuda)
+    if args.model == 'ssd_bifpn_iou_loss':
+        criterion = MultiBoxLoss(cfg['num_classes'], 0.5, True, 0, True, 3, 0.5,
+                                 False, args.cuda,True)
+    else:
+        criterion = MultiBoxLoss(cfg['num_classes'], 0.5, True, 0, True, 3, 0.5,
+                             False, args.cuda,False)
 
     net.train()
     # loss counters
     loc_loss = 0
     conf_loss = 0
+    iou_loss = 0
     epoch = 0
     print('Loading the dataset...')
 
@@ -160,6 +181,7 @@ def train():
             # reset epoch loss counters
             loc_loss = 0
             conf_loss = 0
+            iou_loss = 0
             epoch += 1
 
         if iteration in cfg['lr_steps']:
@@ -185,17 +207,26 @@ def train():
         out = net(images)
         # backprop
         optimizer.zero_grad()
-        loss_l, loss_c = criterion(out, targets)
-        loss = loss_l + loss_c
+        if args.model=='ssd_bifpn_iou_loss':
+            loss_l, loss_c, loss_i = criterion(out, targets)
+            loss = loss_l + loss_c + loss_i
+        else:
+            loss_l, loss_c = criterion(out, targets)
+            loss = loss_l + loss_c
         loss.backward()
         optimizer.step()
         t1 = time.time()
         loc_loss += loss_l.item()
         conf_loss += loss_c.item()
+        if args.model == 'ssd_bifpn_iou_loss':
+            iou_loss += loss_i.item()
 
         if iteration % 10 == 0:
             print('timer: %.4f sec.' % (t1 - t0))
-            print('iter ' + repr(iteration) + ' || Loss: %.4f ||' % (loss.item()), end=' ')
+            if args.model=='ssd_bifpn_iou_loss':
+                print('iter ' + repr(iteration) + ' || Loss: %.4f ||' % (loss_l.item()+loss_c.item()) + ' iou_Loss: %.4f ||' % (loss_i.item()), end=' ')
+            else:
+                print('iter ' + repr(iteration) + ' || Loss: %.4f ||' % (loss.item()), end=' ')
 
         if args.visdom:
             update_vis_plot(iteration, loss_l.item(), loss_c.item(),
@@ -204,10 +235,22 @@ def train():
         if iteration != 0 and iteration % 2000 == 0:
             print('Saving state, iter:', iteration)
             if args.dataset == 'VOC':
-                torch.save(ssd_net.state_dict(), 'weights/ssd512_VOC_' + repr(iteration) + '_bifpn.pth')
+                if args.model == 'ssd_bifpn_iou_loss':
+                    torch.save(ssd_net.state_dict(),
+                               'weights/' + args.model + '_VOC_iou_loss' +
+                               repr(iteration) + '_%.4f' % (loss_l.item()+loss_c.item()) + '_%.4f' % (loss_i.item()) + '.pth')
+                else:
+                    torch.save(ssd_net.state_dict(),
+                           'weights/' + args.model + '_VOC_' +
+                           repr(iteration) + '_%.4f' % (loss.item()) + '.pth')
             else:
-                torch.save(ssd_net.state_dict(), 'weights/ssd512_COCO_' + repr(iteration) + '.pth')
-    torch.save(ssd_net.state_dict(),
+                torch.save(ssd_net.state_dict(), 'weights/ssd512_COCO_' +
+                           repr(iteration) + '.pth')
+    if args.model == 'ssd_bifpn_iou_loss':
+        torch.save(ssd_net.state_dict(),
+                   args.save_folder + '' + args.dataset + '_bifpn_iou_loss' + '_%.4f' % (loss_l.item()+loss_c.item()) + '_%.4f' % (loss_i.item()) + '.pth')
+    else:
+        torch.save(ssd_net.state_dict(),
                args.save_folder + '' + args.dataset + '_bifpn.pth')
 
 

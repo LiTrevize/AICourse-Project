@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 from layers import *
 from layers.bifpn import BIFPN
-from data import voc, coco
+from data import voc_300, voc_512, voc_bifpn
 import os
 
 
@@ -26,19 +26,23 @@ class SSD(nn.Module):
         head: "multibox head" consists of loc and conf conv layers
     """
 
-    def __init__(self, phase, size, base, extras, head, num_classes):
+    def __init__(self, phase, size, base, extras, head, num_classes, extension):
         super(SSD, self).__init__()  # 调用父类nn.Module的构造函数
         self.phase = phase
         self.num_classes = num_classes
 
         # 如果传递到__init__()函数的参数num_classes=21,那么方括号内值为1，选择voc数据集，否则选择coco数据集
-        self.cfg = (coco, voc)[num_classes == 21]
+        if 'bifpn' in extension:
+            self.cfg = eval(('coco', 'voc')[num_classes == 21] + '_bifpn')
+        else:
+            self.cfg = eval(('coco', 'voc')[num_classes == 21] + '_' + ('300', '512')[size == 512])
 
         # prior 是大小为[8732,4]的tensor，记录所有8732个先验框的x,y,h,w
         self.priorbox = PriorBox(self.cfg)
         with torch.no_grad():
             self.priors = Variable(self.priorbox.forward())
         self.size = size
+        self.extension = extension
 
         # SSD network
         self.vgg = nn.ModuleList(base)
@@ -46,19 +50,22 @@ class SSD(nn.Module):
         self.L2Norm = L2Norm(512, 20)
         self.extras = nn.ModuleList(extras)
 
-        self.neck = BIFPN(in_channels=[512, 1024, 512, 256, 256],
-                          out_channels=64,
-                          stack=2,
-                          num_outs=5)
+        if 'bifpn' in self.extension:
+            self.neck = BIFPN(in_channels=[512, 1024, 512, 256, 256],
+                              out_channels=256,
+                              stack=2,
+                              num_outs=5)
 
         self.loc = nn.ModuleList(head[0])
         self.conf = nn.ModuleList(head[1])
+        if 'iou_loss' in self.extension:
+            self.iou = nn.ModuleList(head[2])
 
         if phase == 'test':
             self.softmax = nn.Softmax(dim=-1)
             # Detect函数保存在layers/functions里
             # 参数分别为：num_classes, bkg_label, top_k, conf_thresh, nms_thresh
-            self.detect = Detect(num_classes, 0, 200, 0.01, 0.45)
+            self.detect = Detect(num_classes, 0, 200, 0.01, 0.45, self.cfg['variance'])
 
     def forward(self, x):
         """Applies network layers and ops on input image(s) x.
@@ -82,6 +89,8 @@ class SSD(nn.Module):
         sources = list()
         loc = list()
         conf = list()
+        if 'iou_loss' in self.extension:
+            iou = list()
 
         # apply vgg up to conv4_3 relu
         for k in range(23):
@@ -102,7 +111,9 @@ class SSD(nn.Module):
             if k % 2 == 1:
                 sources.append(x)
 
-        bifpn_output = self.neck(sources)
+        feature_out = sources
+        if 'bifpn' in self.extension:
+            feature_out = self.neck(sources)
 
         # print("shape of sources: ")
         # for i in sources:
@@ -119,10 +130,17 @@ class SSD(nn.Module):
         # sources[5]: torch.Size([32, 256, 1, 1])
 
         # apply multibox head to source layers
-        for (x, l, c) in zip(bifpn_output, self.loc, self.conf):
-            # permute函数将所得到的特征图tensor的通道维度放到最后一个维度
-            loc.append(l(x).permute(0, 2, 3, 1).contiguous())
-            conf.append(c(x).permute(0, 2, 3, 1).contiguous())
+        if 'iou_loss' in self.extension:
+            for (x, l, c, i) in zip(feature_out, self.loc, self.conf, self.iou):
+                # permute函数将所得到的特征图tensor的通道维度放到最后一个维度
+                loc.append(l(x).permute(0, 2, 3, 1).contiguous())
+                conf.append(c(x).permute(0, 2, 3, 1).contiguous())
+                iou.append(i(x).permute(0, 2, 3, 1).contiguous())
+        else:
+            for (x, l, c) in zip(feature_out, self.loc, self.conf):
+                # permute函数将所得到的特征图tensor的通道维度放到最后一个维度
+                loc.append(l(x).permute(0, 2, 3, 1).contiguous())
+                conf.append(c(x).permute(0, 2, 3, 1).contiguous())
 
         # 在cat操作之前，loc是一个包含6个Tensor的元组，每个元组代表
         # 一个特征图经过头网络后关于每个点每个先验框偏移的4个预测
@@ -136,6 +154,9 @@ class SSD(nn.Module):
         # conf 和 loc类似
         loc = torch.cat([o.view(o.size(0), -1) for o in loc], 1)
         conf = torch.cat([o.view(o.size(0), -1) for o in conf], 1)
+        if 'iou_loss' in self.extension:
+            iou = torch.cat([o.view(o.size(0), -1) for o in iou], 1)
+
         if self.phase == "test":
             output = self.detect(
                 loc.view(loc.size(0), -1, 4),  # loc preds
@@ -145,11 +166,19 @@ class SSD(nn.Module):
             )
         else:
             # print(loc.view(loc.size(0), -1, 4).shape)
-            output = (
-                loc.view(loc.size(0), -1, 4),  # torch.Size([32, 8732, 4])
-                conf.view(conf.size(0), -1, self.num_classes),  # torch.Size([32, 8732, 21])
-                self.priors  # torch.Size([8732, 4])
-            )
+            if 'iou_loss' in self.extension:
+                output = (
+                    loc.view(loc.size(0), -1, 4),                   # torch.Size([32, 24512, 4])
+                    conf.view(conf.size(0), -1, self.num_classes),  # torch.Size([32, 24512, 21])
+                    iou.view(iou.size(0),-1),                       # torch.Size([batch_size, 24512])
+                    self.priors                                     # torch.Size([24512, 4])
+                )
+            else:
+                output = (
+                    loc.view(loc.size(0), -1, 4),  # torch.Size([32, 8732, 4])
+                    conf.view(conf.size(0), -1, self.num_classes),  # torch.Size([32, 8732, 21])
+                    self.priors  # torch.Size([8732, 4])
+                )
         return output
 
     def load_weights(self, base_file):
@@ -195,7 +224,7 @@ def vgg(cfg, i, batch_norm=False):
 # 新添加的8个卷积层记为Conv2d-1_1，Conv2d-2_1，Conv2d-3_1，Conv2d-4_1，Conv2d-5_1，Conv2d-6_1，Conv2d-7_1，Conv2d-8_1
 # 其中（Conv2d-2_1、Conv2d-4_1、Conv2d-6_1、Conv2d-8_1）用于多尺度特征提取
 # ‘S’用来判断是否3*3的卷积步长是2，padding是1
-def add_extras(cfg, i, batch_norm=False):
+def add_extras(cfg, i, batch_norm=False, ssd512=False):
     # Extra layers added to VGG for feature scaling
     layers = []
     in_channels = i
@@ -209,37 +238,66 @@ def add_extras(cfg, i, batch_norm=False):
                 layers += [nn.Conv2d(in_channels, v, kernel_size=(1, 3)[flag])]
             flag = not flag
         in_channels = v
-    print("..................................................")
-    print("shape of layers: ")
-    for i in layers:
-        print(i)
-    # if len(cfg) == 12:  # 对于SSD512额外添加的层
-    #     layers.append(nn.Conv2d(in_channels, 128, kernel_size=1, stride=1))
-    #     layers.append(nn.Conv2d(128, 256, kernel_size=4, stride=1, padding=1))
+    # print("..................................................")
+    # print("shape of layers: ")
+    # for i in layers:
+    #     print(i)
+    if ssd512:  # 对于SSD512额外添加的层
+        layers.append(nn.Conv2d(in_channels, 128, kernel_size=1, stride=1))
+        layers.append(nn.Conv2d(128, 256, kernel_size=4, stride=1, padding=1))
     return layers
 
 
-def multibox(vgg, extra_layers, cfg, num_classes):
+def multibox(vgg, extra_layers, cfg, num_classes, bifpn=False, iou_loss=False):
     loc_layers = []
     conf_layers = []
+    iou_layers = []
+
     vgg_source = [21, -2]
     # 对vgg网络结构中的Conv2d-4_3、Conv2d-7_1层通过卷积提取特征
     for k, v in enumerate(vgg_source):
-        # loc_layers += [nn.Conv2d(vgg[v].out_channels,
-        loc_layers += [nn.Conv2d(64,
-                                 cfg[k] * 4, kernel_size=3, padding=1)]
-        # conf_layers += [nn.Conv2d(vgg[v].out_channels,
-        conf_layers += [nn.Conv2d(64,
-                                  cfg[k] * num_classes, kernel_size=3, padding=1)]
+        if bifpn:
+            if iou_loss==False:
+                loc_layers += [nn.Conv2d(256,
+                                     cfg[k] * 4, kernel_size=3, padding=1)]
+                conf_layers += [nn.Conv2d(256,
+                                      cfg[k] * num_classes, kernel_size=3, padding=1)]
+            else:
+                loc_layers += [nn.Conv2d(256,
+                                         cfg[k] * 4, kernel_size=3, padding=1)]
+                conf_layers += [nn.Conv2d(256,
+                                          cfg[k] * num_classes, kernel_size=3, padding=1)]
+                iou_layers += [nn.Conv2d(256,
+                                          cfg[k], kernel_size=3, padding=1)]
+        else:
+            loc_layers += [nn.Conv2d(vgg[v].out_channels,
+                                     cfg[k] * 4, kernel_size=3, padding=1)]
+            conf_layers += [nn.Conv2d(vgg[v].out_channels,
+                                      cfg[k] * num_classes, kernel_size=3, padding=1)]
     # 对extra_layers中的（Conv2d-2_1、Conv2d-4_1、Conv2d-6_1、Conv2d-8_1）层通过卷积提取特征
     for k, v in enumerate(extra_layers[1::2], 2):
-        # loc_layers += [nn.Conv2d(v.out_channels, cfg[k]
-        loc_layers += [nn.Conv2d(64, cfg[k]
-                                 * 4, kernel_size=3, padding=1)]
-        # conf_layers += [nn.Conv2d(v.out_channels, cfg[k]
-        conf_layers += [nn.Conv2d(64, cfg[k]
-                                  * num_classes, kernel_size=3, padding=1)]
-    return vgg, extra_layers, (loc_layers, conf_layers)
+        if bifpn:
+            if iou_loss==False:
+                loc_layers += [nn.Conv2d(256,
+                                     cfg[k] * 4, kernel_size=3, padding=1)]
+                conf_layers += [nn.Conv2d(256,
+                                      cfg[k] * num_classes, kernel_size=3, padding=1)]
+            else:
+                loc_layers += [nn.Conv2d(256,
+                                         cfg[k] * 4, kernel_size=3, padding=1)]
+                conf_layers += [nn.Conv2d(256,
+                                          cfg[k] * num_classes, kernel_size=3, padding=1)]
+                iou_layers += [nn.Conv2d(256,
+                                          cfg[k], kernel_size=3, padding=1)]
+        else:
+            loc_layers += [nn.Conv2d(v.out_channels,
+                                     cfg[k] * 4, kernel_size=3, padding=1)]
+            conf_layers += [nn.Conv2d(v.out_channels,
+                                      cfg[k] * num_classes, kernel_size=3, padding=1)]
+    if iou_loss:
+        return vgg, extra_layers, (loc_layers, conf_layers, iou_layers)
+    else:
+        return vgg, extra_layers, (loc_layers, conf_layers)
 
 
 base = {
@@ -250,15 +308,17 @@ base = {
 }
 extras = {
     '300': [256, 'S', 512, 128, 'S', 256, 128, 256, 128, 256],
-    '512': [256, 'S', 512, 128, 'S', 256, 128, 'S', 256],
+    '512': [256, 'S', 512, 128, 'S', 256, 128, 'S', 256, 128, 'S', 256],
+    'bifpn': [256, 'S', 512, 128, 'S', 256, 128, 'S', 256],
 }
 mbox = {
     '300': [4, 6, 6, 6, 4, 4],  # number of boxes per feature map location
-    '512': [4, 6, 6, 6, 4],
+    '512': [4, 6, 6, 6, 4, 4, 4],
+    'bifpn': [4, 6, 6, 6, 4],
 }
 
 
-def build_ssd(phase, size=300, num_classes=21):
+def build_ssd(phase, size=300, num_classes=21, extension=[]):
     if phase != "test" and phase != "train":
         print("ERROR: Phase: " + phase + " not recognized")
         return
@@ -271,7 +331,17 @@ def build_ssd(phase, size=300, num_classes=21):
     # 比如第一个卷积层是：Conv2d(512, 16, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
     # 后一个列表中每一个卷积层负责代表预测6个feature map中的某一个上任意一点的k个先验框的21个类别的置信度，
     # 比如第一个卷积层是：Conv2d(512, 84, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
-    base_, extras_, head_ = multibox(vgg(base[str(size)], 3),
-                                     add_extras(extras[str(size)], 1024),
-                                     mbox[str(size)], num_classes)
-    return SSD(phase, size, base_, extras_, head_, num_classes)
+    if 'bifpn' in extension:
+        if 'iou_loss' in extension:
+            base_, extras_, head_ = multibox(vgg(base[str(size)], 3),
+                                             add_extras(extras['bifpn'], 1024, ssd512=False),
+                                             mbox['bifpn'], num_classes, True,True)
+        else:
+            base_, extras_, head_ = multibox(vgg(base[str(size)], 3),
+                                         add_extras(extras['bifpn'], 1024, ssd512=False),
+                                         mbox['bifpn'], num_classes, True,False)
+    else:
+        base_, extras_, head_ = multibox(vgg(base[str(size)], 3),
+                                         add_extras(extras[str(size)], 1024, ssd512=(size == 512)),
+                                         mbox[str(size)], num_classes)
+    return SSD(phase, size, base_, extras_, head_, num_classes, extension)

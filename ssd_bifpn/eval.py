@@ -23,17 +23,20 @@ import numpy as np
 import pickle
 import cv2
 
-# # torch.cuda.set_device(3)
+torch.cuda.set_device(0)
+
 
 def str2bool(v):
     return v.lower() in ("yes", "true", "t", "1")
 
 
 parser = argparse.ArgumentParser(
-    description='Single Shot MultiBox Detector Evaluation')
+    description='Single Shot MultiBox Detector Improved Evaluation')
 # parser.add_argument('--trained_model',
 #                    default='weights/ssd300_mAP_77.43_v2.pth', type=str,
 #                    help='Trained state_dict file path to open')
+parser.add_argument('--model', choices=['ssd300', 'ssd512', 'ssd_bifpn'],
+                    type=str, help='The model type')
 parser.add_argument('--trained_model',
                     default='weights/VOC.pth', type=str,
                     help='Trained state_dict file path to open')
@@ -186,7 +189,7 @@ def write_voc_results_file(all_boxes, dataset):
 
 
 def do_python_eval(output_dir='output', use_07=True):
-    cachedir = os.path.join(devkit_path, 'annotations_cache_ssd512')
+    cachedir = os.path.join(devkit_path, 'annotations_cache')
     aps = []
     aps_cat = [[] for i in range(5)]
     # The PASCAL VOC metric changed in 2010
@@ -456,7 +459,7 @@ def test_net(save_folder, net, cuda, dataset, transform, top_k,
     # timers
     _t = {'im_detect': Timer(), 'misc': Timer()}
     output_dir = get_output_dir('ssd512_bifpn_120000', set_type)
-    det_file = os.path.join(output_dir, 'detections.pkl')
+    det_file = os.path.join(output_dir, 'detections_' + args.model + '.pkl')
 
     # if cached detection
     if args.cached_det and os.path.exists(det_file):
@@ -515,9 +518,14 @@ def evaluate_detections(box_list, output_dir, dataset):
 if __name__ == '__main__':
     # load net
     num_classes = len(labelmap) + 1  # +1 for background
-    net = build_ssd('test', 512, num_classes)  # initialize SSD
+    if args.model == 'ssd300':
+        net = build_ssd('test', 300, num_classes)  # initialize SSD
+    elif args.model == 'ssd512':
+        net = build_ssd('test', 512, num_classes)
+    elif args.model == 'ssd_bifpn':
+        net = build_ssd('test', 512, num_classes, ['bifpn'])
     if args.cuda:
-        net.load_state_dict(torch.load(args.trained_model))
+        net.load_state_dict(torch.load(args.trained_model, map_location='cuda:0'))
     else:
         net.load_state_dict(torch.load(args.trained_model, map_location='cpu'))
     net.eval()

@@ -32,7 +32,7 @@ class MultiBoxLoss(nn.Module):
 
     def __init__(self, num_classes, overlap_thresh, prior_for_matching,
                  bkg_label, neg_mining, neg_pos, neg_overlap, encode_target,
-                 use_gpu=True):
+                 use_gpu=True,iou_loss=False):
         super(MultiBoxLoss, self).__init__()
         self.use_gpu = use_gpu
         self.num_classes = num_classes
@@ -44,6 +44,7 @@ class MultiBoxLoss(nn.Module):
         self.negpos_ratio = neg_pos
         self.neg_overlap = neg_overlap
         self.variance = cfg['variance']
+        self.iou_loss = iou_loss
 
     def forward(self, predictions, targets):
         """Multibox Loss
@@ -57,38 +58,64 @@ class MultiBoxLoss(nn.Module):
             targets (tensor): Ground truth boxes and labels for a batch,
                 shape: [batch_size,num_objs,5] (last idx is the label).
         """
-        loc_data, conf_data, priors = predictions
+        if self.iou_loss:
+            loc_data, conf_data, iou_data, priors = predictions
+        else:
+            loc_data, conf_data, priors = predictions
         num = loc_data.size(0)
+
         priors = priors[:loc_data.size(1), :]
-        num_priors = (priors.size(0))
+        num_priors = (priors.size(0))     #24512
+
         num_classes = self.num_classes
 
         # match priors (default boxes) and ground truth boxes
         loc_t = torch.Tensor(num, num_priors, 4)
         conf_t = torch.LongTensor(num, num_priors)
+        iou_t = torch.Tensor(num,num_priors)
+
         for idx in range(num):
             truths = targets[idx][:, :-1].data
             labels = targets[idx][:, -1].data
             defaults = priors.data
             match(self.threshold, truths, defaults, self.variance, labels,
-                  loc_t, conf_t, idx)
+                  loc_t, conf_t, iou_t, idx)
         if self.use_gpu:
             loc_t = loc_t.cuda()
             conf_t = conf_t.cuda()
+            iou_t = iou_t.cuda()
+
         # wrap targets
         loc_t = Variable(loc_t, requires_grad=False)
         conf_t = Variable(conf_t, requires_grad=False)
+        iou_t = Variable(iou_t, requires_grad=False)
 
-        pos = conf_t > 0
-        num_pos = pos.sum(dim=1, keepdim=True)
+        pos = conf_t > 0   # Shape: [batch,num_priors]
+        # num_pos = pos.sum(dim=1, keepdim=True)
 
         # Localization Loss (Smooth L1)
         # Shape: [batch,num_priors,4]
-        pos_idx = pos.unsqueeze(pos.dim()).expand_as(loc_data)
+        pos_idx = pos.unsqueeze(pos.dim()).expand_as(loc_data)    # expand 是将相应位置元素复制四遍
+
+        num_pos_idx = pos_idx.sum(dim=1, keepdim=True)
+
         loc_p = loc_data[pos_idx].view(-1, 4)
         loc_t = loc_t[pos_idx].view(-1, 4)
         loss_l = F.smooth_l1_loss(loc_p, loc_t, size_average=False)
 
+        ##############################################################################
+        # iou loss
+        iou_t = torch.clamp(iou_t, 1e-3, 1-1e-3)
+        if self.iou_loss:
+            iou_p = iou_data[pos]
+            iou_p = torch.clamp(iou_p, 1e-3, 1 - 1e-3)
+            iou_t = iou_t[pos]
+            loss_i = -((iou_t * torch.log(iou_p)) + (1.0 - iou_t) * torch.log(1.0 - iou_p))
+            loss_i=loss_i.sum()
+            # print("iou_p: ",iou_p)
+            # print("loss_i is: ",loss_i)
+
+        ###############################################################################
         # Compute max conf across batch for hard negative mining
         batch_conf = conf_data.view(-1, self.num_classes)
         loss_c = log_sum_exp(batch_conf) - batch_conf.gather(1, conf_t.view(-1, 1))
@@ -115,4 +142,7 @@ class MultiBoxLoss(nn.Module):
         N = num_pos.data.sum()
         loss_l /= N
         loss_c /= N
+        if self.iou_loss:
+            loss_i /= N
+            return loss_l, loss_c, loss_i
         return loss_l, loss_c
