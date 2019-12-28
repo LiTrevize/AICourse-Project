@@ -47,6 +47,8 @@
 \usepackage{hyperref}
 \usepackage{cleveref}
 
+\usepackage{fontspec}
+
 % \usepackage{CJK}
 
 \crefformat{section}{\S#2#1#3} % see manual of cleveref, section 8.2.1
@@ -54,6 +56,11 @@
 \crefformat{subsubsection}{\S#2#1#3}
 
 \begin{document}
+
+\newfontfamily\cl{Consolas}
+\newcommand{\code}[1]{{\cl #1}}
+% \newcommand{\code}[1]{#1}
+
 %
 % paper title
 % Titles are generally capitalized except for words such as a, an, and, as,
@@ -61,7 +68,7 @@
 % not capitalized unless they are the first or last word of the title.
 % Linebreaks \\ can be used within to get better formatting as desired.
 % Do not put math or special symbols in the title.
-\title{Improve SSD with Feature Fusion, \\IOU Loss and Data Augmentation}
+\title{Improve SSD with Feature Fusion, \\IOU Loss and Super Resolution}
 %
 %
 % author names and IEEE memberships
@@ -74,9 +81,9 @@
 %
 
 \author{
-	Jingyu~Li,~\IEEEmembership{SJTU,}
-	Haoping~Chen,~\IEEEmembership{SJTU,}
-	Huangfei~Jiang,~\IEEEmembership{SJTU,}
+  Jingyu~Li,~\IEEEmembership{SJTU,}
+  Haoping~Chen,~\IEEEmembership{SJTU,}
+  Huangfei~Jiang,~\IEEEmembership{SJTU,}
 }
 
 % The paper headers
@@ -97,12 +104,12 @@
 % As a general rule, do not put math, special symbols or citations
 % in the abstract or keywords.
 \begin{abstract}
-	In this project
+  In this project
 \end{abstract}
 
 % Note that keywords are not normally used for peerreview papers.
 \begin{IEEEkeywords}
-	OBI recognition, CNN, template matching, data augmentation.
+  OBI recognition, CNN, template matching, data augmentation.
 \end{IEEEkeywords}
 
 
@@ -111,11 +118,34 @@
 
 
 \section{Introduction}
-\IEEEPARstart{O}{racle} 
+\IEEEPARstart{O}{racle}
 
 
 % ljy
 \section{SSD Baseline}
+Single Shot Multibox Detector (SSD) is an end-to-end convolutional neural network for object detection. The original paper \cite{ssd} demonstrates two variants of the model called the SSD300 and the SSD512. The suffixes represent the size of the input image. They have the same principles, although their structures have a slight difference.
+
+As a baseline model, we choose SSD300 and reimplement it in PyTorch. The top functions of SSD network structure are shown in \code{ssd.py}. This section will focus on the structure of SSD network. The training and evaluation will be discussed in the experiment section.
+
+% Unlike earlier architectures for object detection, e.g. RCNN, which consist of two distinct stages, a region proposal network that performs object localization and a classifier for detecting the types of objects in the proposed regions. However, they can be very computational expensive and therefore incapable of real-world, real-time applications. Single-shot models encapsulate both localization and detection tasks in a single network, resulting in significantly faster detections while deployable on lighter hardware.
+
+\subsection{Network Structure Overview}
+The whole SSD network can be organized into three parts
+
+\subsubsection{Base convolutions}
+It is derived from an existing image classification architecture that will provide lower-level feature maps.
+
+SSD uses a modified VGG-16 as the base network. The first five blocks are a repetition of convolution, convolution and max pooling. Different from the original VGG-16, the remaining fully-connected layers (fc) are modified. FC8 is removed, and FC6 and FC7 are turned into convolutional layers. The base network will generate two feature maps of size $38$ and $19$ for later detection.
+
+\subsubsection{Auxiliary convolutions}
+They are added on top of the base network that will provide higher-level feature maps. SSD300 adds four extra convolution blocks to generate four more feature maps of size $10$, $5$, $3$, $1$.
+
+\subsubsection{Prediction convolutions} layers that that will locate and identify objects in these feature maps, which will be discussed in more detail in the following.
+
+
+All of these three structures are constructed in the function \code{multibox()}
+
+\subsection{}
 
 
 
@@ -133,6 +163,8 @@
 
 
 \section{Experiments}
+% ljy
+\subsection{Dataset}
 
 % chp
 \subsection{Training}
