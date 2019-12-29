@@ -35,11 +35,13 @@ parser = argparse.ArgumentParser(
 # parser.add_argument('--trained_model',
 #                    default='weights/ssd300_mAP_77.43_v2.pth', type=str,
 #                    help='Trained state_dict file path to open')
-parser.add_argument('--model', choices=['ssd300', 'ssd512', 'ssd_bifpn'],
+parser.add_argument('--model', choices=['ssd300', 'ssd512', 'ssd_bifpn', 'ssd_bifpn_iou_loss'],
                     type=str, help='The model type')
 parser.add_argument('--trained_model',
                     default='weights/VOC.pth', type=str,
                     help='Trained state_dict file path to open')
+parser.add_argument('--sr', dest='sr', action='store_true',
+                    help='whether to make image super resolution')
 parser.add_argument('--save_folder', default='eval/', type=str,
                     help='File path to save results')
 parser.add_argument('--confidence_threshold', default=0.01, type=float,
@@ -54,7 +56,7 @@ parser.add_argument('--cleanup', default=True, type=str2bool,
                     help='Cleanup and remove results files following eval')
 parser.add_argument('--device', default=0, type=int,
                     help='set GPU device id ')
-parser.add_argument('--cached_det', default=False, type=str2bool,
+parser.add_argument('--cached_det', action='store_true',
                     help='use cached detection for neural network')
 
 args = parser.parse_args()
@@ -155,7 +157,7 @@ def get_output_dir(name, phase):
     A canonical path is built using the name from an imdb and a network
     (if not None).
     """
-    filedir = os.path.join(name, phase)
+    filedir = os.path.join('eval', name, phase)
     if not os.path.exists(filedir):
         os.makedirs(filedir)
     return filedir
@@ -281,7 +283,7 @@ def voc_eval(detpath, annopath, imagesetfile, classname, cachedir, ovthresh=0.5,
     # first load gt
     if not os.path.isdir(cachedir):
         os.mkdir(cachedir)
-    cachefile = os.path.join(cachedir, 'annots.pkl')
+    cachefile = os.path.join(cachedir, 'annots' + ('', '_sr')[args.sr] + '.pkl')
     # read list of images
     with open(imagesetfile, 'r') as f:
         lines = f.readlines()
@@ -313,14 +315,14 @@ def voc_eval(detpath, annopath, imagesetfile, classname, cachedir, ovthresh=0.5,
     # extract gt objects for this class
     class_recs = {}
     npos = 0
-    npos_scale = [0] * 5
+    npos_scale = [0 for i in range(5)]
 
     for imagename in imagenames:
         # gt detection for imagename(id)
         R = [obj for obj in recs[imagename] if obj['name'] == classname]
         bbox = np.array([x['bbox'] for x in R])
         difficult = np.array([x['difficult'] for x in R]).astype(np.bool)
-        det = [False] * len(R)
+        det = [False for i in range(len(R))]
         npos = npos + sum(~difficult)  # npos only counts non-difficult detection
 
         # num of size = num of detection
@@ -390,6 +392,7 @@ def voc_eval(detpath, annopath, imagesetfile, classname, cachedir, ovthresh=0.5,
             # rs = R['size'][jmax]
             rs = (bb[2] - bb[0]) * (bb[3] - bb[1])
             thres = cat_size_thres[labelmap.index(classname)]
+            # print(thres)
             if rs <= thres[0]:
                 rs = 0
             elif rs <= thres[1]:
@@ -434,7 +437,7 @@ def voc_eval(detpath, annopath, imagesetfile, classname, cachedir, ovthresh=0.5,
         # ground truth
         prec = tp / np.maximum(tp + fp, np.finfo(np.float64).eps)
 
-        rec_cat = [tp_scale[i] / npos_scale[i] for i in range(5)]
+        rec_cat = [tp_scale[i] / np.maximum(npos_scale[i], 1) for i in range(5)]
         prec_cat = [tp_scale[i] / np.maximum(tp_scale[i] + fp_scale[i], np.finfo(np.float64).eps) for i in range(5)]
 
         ap = voc_ap(rec, prec, use_07_metric)
@@ -458,7 +461,7 @@ def test_net(save_folder, net, cuda, dataset, transform, top_k,
 
     # timers
     _t = {'im_detect': Timer(), 'misc': Timer()}
-    output_dir = get_output_dir('ssd512_bifpn_120000', set_type)
+    output_dir = get_output_dir(args.model + ('', '_sr')[args.sr], set_type)
     det_file = os.path.join(output_dir, 'detections_' + args.model + '.pkl')
 
     # if cached detection
@@ -477,7 +480,8 @@ def test_net(save_folder, net, cuda, dataset, transform, top_k,
         if args.cuda:
             x = x.cuda()
         _t['im_detect'].tic()
-        detections = net(x).data
+        detections = net(x).data  # torch.Size([1, 21, 200, 5])
+
         detect_time = _t['im_detect'].toc(average=False)
 
         # skip j = 0, because it's the background class
@@ -524,6 +528,8 @@ if __name__ == '__main__':
         net = build_ssd('test', 512, num_classes)
     elif args.model == 'ssd_bifpn':
         net = build_ssd('test', 512, num_classes, ['bifpn'])
+    elif args.model == 'ssd_bifpn_iou_loss':
+        net = build_ssd('test', 512, num_classes, ['bifpn', 'iou_loss'])
     if args.cuda:
         net.load_state_dict(torch.load(args.trained_model, map_location='cuda:0'))
     else:
@@ -532,8 +538,9 @@ if __name__ == '__main__':
     print('Finished loading model!')
     # load data
     dataset = VOCDetection(args.voc_root, [('2007', set_type)],
-                           BaseTransform(512, dataset_mean),  # resize to 300*300 and - mean
-                           VOCAnnotationTransform())
+                           BaseTransform((512, 300)[args.model == 'ssd300'], dataset_mean),
+                           # resize to 300*300 and - mean
+                           VOCAnnotationTransform(), super_res=args.sr)
     if args.cuda:
         net = net.cuda()
         cudnn.benchmark = True

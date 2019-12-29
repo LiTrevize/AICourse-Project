@@ -115,19 +115,16 @@ class SSD(nn.Module):
         if 'bifpn' in self.extension:
             feature_out = self.neck(sources)
 
-        # print("shape of sources: ")
-        # for i in sources:
+        # print("shape of feature_out: ")
+        # for i in feature_out:
         #     print(i.shape)
-        # print("shape of bifpn_output: ")
-        # for i in bifpn_output:
-        #     print(i.shape)
-        # sources是含有6个Tensor的元组，每个Tensor都是一个batch的图片经过网络后某一特征图的特征
-        # sources[0]: torch.Size([32, 512, 38, 38])
-        # sources[1]: torch.Size([32, 1024, 19, 19])
-        # sources[2]: torch.Size([32, 512, 10, 10])
-        # sources[3]: torch.Size([32, 256, 5, 5])
-        # sources[4]: torch.Size([32, 256, 3, 3])
-        # sources[5]: torch.Size([32, 256, 1, 1])
+
+        # sources是含有5个Tensor的元组，每个Tensor都是一个batch的图片经过网络后某一特征图的特征
+        # sources[0]: torch.Size([32, 512, 64, 64])
+        # sources[1]: torch.Size([32, 1024, 32, 32])
+        # sources[2]: torch.Size([32, 512, 16, 16])
+        # sources[3]: torch.Size([32, 256, 8, 8])
+        # sources[4]: torch.Size([32, 256, 4, 4])
 
         # apply multibox head to source layers
         if 'iou_loss' in self.extension:
@@ -142,15 +139,14 @@ class SSD(nn.Module):
                 loc.append(l(x).permute(0, 2, 3, 1).contiguous())
                 conf.append(c(x).permute(0, 2, 3, 1).contiguous())
 
-        # 在cat操作之前，loc是一个包含6个Tensor的元组，每个元组代表
+        # 在cat操作之前，loc是一个包含5个Tensor的元组，每个元组代表
         # 一个特征图经过头网络后关于每个点每个先验框偏移的4个预测
-        # loc[0]: torch.Size([32, 38, 38, 16])
-        # loc[1]: torch.Size([32, 19, 19, 24])
-        # loc[2]: torch.Size([32, 10, 10, 24])
-        # loc[3]: torch.Size([32, 5, 5, 24])
-        # loc[4]: torch.Size([32, 3, 3, 16])
-        # loc[5]: torch.Size([32, 1, 1, 16])
-        # 执行cat操作后，loc为：torch.Size([32, 34928])
+        # loc[0]: torch.Size([32, 64, 64, 16])
+        # loc[1]: torch.Size([32, 32, 32, 24])
+        # loc[2]: torch.Size([32, 16, 16, 24])
+        # loc[3]: torch.Size([32, 8, 8, 24])
+        # loc[4]: torch.Size([32, 4, 4, 16])
+        # 执行cat操作后，loc为：torch.Size([32, 98048])
         # conf 和 loc类似
         loc = torch.cat([o.view(o.size(0), -1) for o in loc], 1)
         conf = torch.cat([o.view(o.size(0), -1) for o in conf], 1)
@@ -238,10 +234,10 @@ def add_extras(cfg, i, batch_norm=False, ssd512=False):
                 layers += [nn.Conv2d(in_channels, v, kernel_size=(1, 3)[flag])]
             flag = not flag
         in_channels = v
-    # print("..................................................")
-    # print("shape of layers: ")
-    # for i in layers:
-    #     print(i)
+    print("..................................................")
+    print("shape of layers: ")
+    for i in layers:
+        print(i)
     if ssd512:  # 对于SSD512额外添加的层
         layers.append(nn.Conv2d(in_channels, 128, kernel_size=1, stride=1))
         layers.append(nn.Conv2d(128, 256, kernel_size=4, stride=1, padding=1))

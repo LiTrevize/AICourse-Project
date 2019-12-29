@@ -63,7 +63,8 @@ if __name__ == '__main__':
                            VOCAnnotationTransform(keep_difficult=True))
 
     # cls * id/size
-    num_cls = len(labelmap)
+    # +1 for total scale division
+    num_cls = len(labelmap)+1
     dets_id = [[] for i in range(num_cls)]
     dets_size = [[] for i in range(num_cls)]
     print('pulling annotation...')
@@ -74,6 +75,8 @@ if __name__ == '__main__':
             cls = det[-1]
             dets_id[cls].append(imgid)
             dets_size[cls].append(det_size)
+            dets_id[-1].append(imgid)
+            dets_size[-1].append(det_size)
         if i % 100 == 0:
             print('\rProgress: {}%'.format(int(100.0 * i / len(dataset))), end='')
     print()

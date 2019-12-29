@@ -9,7 +9,7 @@ parser = argparse.ArgumentParser(
 # specify the model
 parser.add_argument('--model',
                     choices=['ssd_bifpn', 'ssd_bifpn_sr', 'ssd_bifpn_iou_loss',
-                             'ssd300', 'ssd512'],
+                             'ssd300', 'ssd512', 'all'],
                     type=str, help='model type')
 parser.add_argument('--weights_dir', default='weights/',
                     type=str, help='directory to the weights')
@@ -65,27 +65,50 @@ if __name__ == '__main__':
 
     output_name = args.output_dir + args.model
 
-    if os.path.exists(output_name + '.pkl') and not args.f:
-        with open(output_name + '.pkl', 'rb') as f:
-            train_loss = pickle.load(f)
-    else:
-        get_train_loss_from_ckp()
-        iter = sorted(loss_map.keys())
-        loss = [loss_map[k] for k in iter]
-        train_loss = {'iter': np.array(iter), 'loss': np.array(loss)}
-        with open(output_name + '.pkl', 'wb') as f:
-            pickle.dump(train_loss, f)
-
-    if args.plot:
-        if args.model == 'ssd_bifpn_iou_loss':
-            plt.plot(train_loss['iter'], train_loss['loss'][:, 0], label='loss_loc+loss_conf')
-            plt.plot(train_loss['iter'], train_loss['loss'][:, 1], label='loss_iou')
-            plt.plot(train_loss['iter'], np.sum(train_loss['loss'], axis=1), label='loss_total')
-            plt.legend()
-        else:
-            plt.plot(train_loss['iter'], train_loss['loss'])
-        plt.title('training loss of ' + args.model)
-        plt.xlabel('iteration')
-        plt.ylabel('loss')
+    if args.model == 'all':
+        plt.figure()
+        for name in os.listdir(args.output_dir):
+            if '.pkl' not in name:
+                continue
+            with open(args.output_dir + name, 'rb') as f:
+                train_loss = pickle.load(f)
+            model = name.split('.')[0]
+            if model == 'ssd_bifpn_iou_loss':
+                plt.plot(train_loss['iter'], np.sum(train_loss['loss'], axis=1), label='ssd_bifpn_iou')
+                plt.plot(train_loss['iter'], train_loss['loss'][:, 0], label='loss_l+loss_c')
+                plt.plot(train_loss['iter'], train_loss['loss'][:, 1], label='loss_iou')
+            else:
+                plt.plot(train_loss['iter'], train_loss['loss'], ':', label=model)
+            plt.title('training loss of ' + args.model)
+            plt.xlabel('iteration')
+            plt.ylabel('loss')
+        plt.legend()
         plt.savefig(args.output_dir + args.model + '.png')
         plt.show()
+
+    else:
+
+        if os.path.exists(output_name + '.pkl') and not args.f:
+            with open(output_name + '.pkl', 'rb') as f:
+                train_loss = pickle.load(f)
+        else:
+            get_train_loss_from_ckp()
+            iter = sorted(loss_map.keys())
+            loss = [loss_map[k] for k in iter]
+            train_loss = {'iter': np.array(iter), 'loss': np.array(loss)}
+            with open(output_name + '.pkl', 'wb') as f:
+                pickle.dump(train_loss, f)
+
+        if args.plot:
+            if args.model == 'ssd_bifpn_iou_loss':
+                plt.plot(train_loss['iter'], train_loss['loss'][:, 0], label='loss_loc+loss_conf')
+                plt.plot(train_loss['iter'], train_loss['loss'][:, 1], label='loss_iou')
+                plt.plot(train_loss['iter'], np.sum(train_loss['loss'], axis=1), label='loss_total')
+                plt.legend()
+            else:
+                plt.plot(train_loss['iter'], train_loss['loss'])
+            plt.title('training loss of ' + args.model)
+            plt.xlabel('iteration')
+            plt.ylabel('loss')
+            plt.savefig(args.output_dir + args.model + '.png')
+            plt.show()
