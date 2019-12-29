@@ -48,6 +48,7 @@
 \usepackage{cleveref}
 
 \usepackage{fontspec}
+\usepackage{multirow}
 % \usepackage{cite}
 
 % \usepackage{CJK}
@@ -106,7 +107,7 @@
 % As a general rule, do not put math, special symbols or citations
 % in the abstract or keywords.
 \begin{abstract}
-  In the AI course project, we mainly follow the one-stage detector design, and we show it is possible to achieve both better efficiency and higher accuracy with optimized network architectures, refined losses and super-resolution inputs.
+  In this project, we mainly follow the one-stage detector design, and propose some methods to improve SSD for better small object detection performance. We show that it is possible to achieve both better efficiency and higher accuracy with refined network architectures, BiFPN feature fusion, additional IoU losses and super-resolution inputs.
 \end{abstract}
 
 % Note that keywords are not normally used for peerreview papers.
@@ -150,7 +151,13 @@ Existing object detectors are mostly categorized by whether they have a region-o
 While two-stage detectors tend to be more flexible and more accurate, one-stage detectors are often considered to be simpler and more efficient by leveraging predefined anchors \cite{huangspeed}. Recently, one-stage detectors have attracted substantial attention due to their efficiency and simplicity~\cite{lawcornernet, zhaodet, zhouobjects}.
 
 \subsection{Feature Fusion}
-One of the main difficulties in object detection is to effectively represent and process multi-scale features. Earlier detectors often directly perform predictions based on the pyramidal feature hierarchy extracted from backbone networks \cite{caiunified, liussd, sermanetoverfeat} . As one of the pioneering works, feature pyramid network (FPN)~\cite{linfeature2} proposes a top-down pathway to combine multi-scale features. Following this idea, PANet~\cite{liupath} adds an extra bottom-up path aggregation network on top of FPN; STDL~\cite{zhouscale} proposes a scale-transfer module to exploit cross-scale features, and G-FRNet~\cite{amirulgated} introduces gate units for controlling information flow across features. More recently, NAS-FPN~\cite{ghiasifpn} leverages neural architecture search to automatically design feature network topology. We use our BiFPN layer to optimize multi-scale feature fusion with a more intuitive and principled way.
+One of the main difficulties in object detection is to effectively represent and process multi-scale features. Earlier detectors often directly perform predictions based on the pyramidal feature hierarchy extracted from backbone networks \cite{caiunified, liussd, sermanetoverfeat} . As one of the pioneering works, feature pyramid network (FPN)~\cite{linfeaturee} proposes a top-down pathway to combine multi-scale features. Following this idea, PANet~\cite{liupath} adds an extra bottom-up path aggregation network on top of FPN; STDL~\cite{zhouscale} proposes a scale-transfer module to exploit cross-scale features, and G-FRNet~\cite{amirulgated} introduces gate units for controlling information flow across features. More recently, NAS-FPN~\cite{ghiasifpn} leverages neural architecture search to automatically design feature network topology. We use our BiFPN layer to optimize multi-scale feature fusion with a more intuitive and principled way.
+
+\begin{figure*}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{fig/ssd.PNG}
+  \caption{Original SSD structure}\label{fig:ssd}
+\end{figure*}
 
 \subsection{Loss Functions}
 The low correlation between the classification score and localization accuracy hurts the models' localization accuracy severely and many methods have been proposed to solve this problem. Fitness NMS~\cite{tychsenimproving} improves DeNet~\cite{tychsendenet} by dividing the localization accuracy into 5 levels and transforming the localization accuracy prediction task to the classification task. IoU-Net~\cite{jiangacquisition} improves Faster R-CNN by designing a IoU prediction head parallel with the R-CNN to predict the regressed IoU for each RoI. Similarly, IoU-balanced classification loss~\cite{wuiou} uses the regressed IoU to reweight the classification loss for each positive example directly and aims to make the examples with higher IoU learn higher classification score. Our IoU-aware single-stage object detector aims to improve the single-stage detectors by designing a IoU prediction head to predict the IoU for each regressed anchor.
@@ -166,7 +173,7 @@ As a baseline model, we choose SSD300 and reimplement it in PyTorch. The top fun
 % Unlike earlier architectures for object detection, e.g. RCNN, which consist of two distinct stages, a region proposal network that performs object localization and a classifier for detecting the types of objects in the proposed regions. However, they can be very computational expensive and therefore incapable of real-world, real-time applications. Single-shot models encapsulate both localization and detection tasks in a single network, resulting in significantly faster detections while deployable on lighter hardware.
 
 \subsection{Network Structure Overview}
-The whole SSD network can be organized into three parts
+The whole SSD network can be organized into three parts, which is shown in Figure~\ref{fig:ssd}.
 
 \subsubsection{Base convolutions}
 It is derived from an existing image classification architecture that will provide lower-level feature maps.
@@ -252,15 +259,7 @@ Specifically, in the top function \code{build\_ssd}, we add a parameter \code{ex
   \caption{Backbone structure for our improvement}\label{fig:basics}
 \end{figure*}
 
-% ljy
-\subsection{Super Resolution}
-Original images in the VOC dataset are around $300$ in size. To feed them to the $512$ input, we can naively use interpolation to resize the images, but that will make them vague and lose some details. So we use Enhanced Deep Residual Networks (EDSR) for image super-resolution \cite{edsr}. It can enlarge the images while retaining some details, as shown in Figure~\ref{fig:edsr}. We use EDSR to double the size of original images, then use downsampling methods to resize them to fit the $512$ input size.
 
-\begin{figure}[htbp]
-  \centering
-  \includegraphics[width=\linewidth]{fig/edsr.png}
-  \caption{Performance of EDSR compared with other methods. HR is the true high resolution image.}\label{fig:edsr}
-\end{figure}
 
 % chp
 \subsection{Feature Fusion}
@@ -276,7 +275,7 @@ The convolutional FPN aggregates multi-scale features in a top-down manner:
 
 where Resize is usually an up-sampling or down-sampling op for resolution matching, and Conv is usually a convolutional op for feature processing.
 
-To address the issue of one-way flow information limitation, our BiFPN layer adds an extra bottom-up path aggregation network, which idea is inspired by PANet. The idea of PANet is shown in Figure~ref{fig:bifpn}.
+To address the issue of one-way flow information limitation, our BiFPN layer adds an extra bottom-up path aggregation network, which idea is inspired by PANet. The idea of PANet is shown in Figure~\ref{fig:bifpn}.
 
 \begin{figure}[htbp]
   \centering
@@ -336,6 +335,15 @@ To keep the model's efficiency, the IoU prediction head consists of only assign 
 \subsubsection{Loss function}
 The loss of IoU of a sample is the cross entropy between predicted IOU and truth IoU of regressed prior box and its assigned ground truth box. We only consider IoU loss of positive samples where truth IoU is greater than the threshold. The loss function formula is described in training part, with other classification loss and confidence loss.
 
+% ljy
+\subsection{Super Resolution}
+Original images in the VOC dataset are around $300$ in size. To feed them to the $512$ input, we can naively use interpolation to resize the images, but that will make them vague and lose some details. So we use Enhanced Deep Residual Networks (EDSR) for image super-resolution \cite{edsr}. It can enlarge the images while retaining some details, as shown in Figure~\ref{fig:edsr}. We use EDSR to double the size of original images, then use downsampling methods to resize them to fit the $512$ input size.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{fig/edsr.png}
+  \caption{Performance of EDSR compared with other methods. HR is the true high resolution image.}\label{fig:edsr}
+\end{figure}
 
 \section{Experiments}
 % \begin{figure*}[htbp]
@@ -383,6 +391,14 @@ During training, the IoU prediction head is trained jointly with the classificat
 \begin{equation}
   L_{total}=L_{cls}+L_{loc}+L_{IoU}\label{eq4}
 \end{equation}
+
+The training process is shown in Figure~\ref{fig:train}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{fig/all.png}
+  \caption{The training process}\label{fig:train}
+\end{figure}
 
 % ljy
 \subsection{Evaluation}
