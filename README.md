@@ -25,7 +25,7 @@ You can download our trained models from [jbox](https://jbox.sjtu.edu.cn/l/I510e
 
 To evaluate a model, you need to specify the model type and weight file:
 ```
-cd ssd_bifpn
+cd ssd_bifpn_iou
 python eval.py --model [MODEL_NAME] --trained_model [WEIGHT_FILE] 
 ```
 Currently, we support four types of model: `ssd300`, `ssd500`, `ssd_bifpn` and `ssd_bifpn_iou_loss`.
@@ -47,3 +47,4 @@ You can run the demo by
 ```
 python demo.py
 ```
+Results are saved to `result_demo` by default.

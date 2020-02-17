@@ -5,6 +5,8 @@
 *ref/
 *eval/
 *weights/
+report/
+ssd/
 
 # latex & report
 *.aux
